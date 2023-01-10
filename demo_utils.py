@@ -29,7 +29,7 @@ def denormalize(image, mean=None, std=None, dtype=np.uint8, tp=True):
         image = transpose(image)
         
     if mean is not None:
-        image = (image * std) + mean
+        image = image
     
     if dtype == np.uint8:
         image *= 255.

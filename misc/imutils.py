@@ -4,7 +4,7 @@ import numpy as np
 import pydensecrf.densecrf as dcrf
 from pydensecrf.utils import unary_from_labels
 from PIL import Image
-
+import torch
 def pil_resize(img, size, order):
     if size[0] == img.shape[0] and size[1] == img.shape[1]:
         return img
@@ -164,7 +164,16 @@ def center_crop(img, cropsize, default_value=0):
     return container
 
 def HWC_to_CHW(img):
-    return np.transpose(img, (2, 0, 1))
+    if len(img.shape) == 2:
+        img = torch.from_numpy(img)
+        img = img.unsqueeze(dim=0)
+        return np.concatenate((img,img,img),axis=0)
+    if len(img.shape) == 4:
+        img = torch.from_numpy(img)
+        img = img.unsqueeze(dim=0)
+        return np.concatenate((img, img, img), axis=0)
+    else:
+        return np.transpose(img, (2, 0, 1))
 
 def crf_inference_label(img, labels, t=10, n_labels=21, gt_prob=0.7):
 

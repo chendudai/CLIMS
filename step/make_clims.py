@@ -13,8 +13,8 @@ import os.path as osp
 from misc import torchutils, imutils
 import net.resnet50_cam
 import cv2
-import voc12.dataloader
-
+import wikiscenes.dataloader
+import os
 cudnn.enabled = True
 
 def make_cam(x, epsilon=1e-5):
@@ -44,8 +44,8 @@ def denormalize(image, mean=None, std=None, dtype=np.uint8, tp=True):
         image = transpose(image)
 
     if mean is not None:
-        image = (image * std) + mean
-
+        # image = (image * std) + mean
+        image = image
     if dtype == np.uint8:
         image *= 255.
         return image.astype(np.uint8)
@@ -114,9 +114,13 @@ def _work(process_id, model, dataset, args):
                 cam = colormap(cam)
 
                 image = cv2.addWeighted(image, 0.5, cam, 0.5, 0)
-                cv2.imwrite(f'vis/{args.work_space}/{img_name}.png', image.astype(np.uint8))
+                folder = img_name.split('/')[0]
+                full_path = os.path.join('./vis', args.work_space, folder)
+                os.makedirs(full_path, exist_ok=True)
+                cv2.imwrite(f'vis/{args.work_space}/{img_name}', image.astype(np.uint8))
 
             # save cams
+            os.makedirs(os.path.join(args.cam_out_dir, img_name.split('/')[0]), exist_ok=True)
             np.save(os.path.join(args.cam_out_dir, img_name.replace('jpg', 'npy')),
                     {"keys": valid_cat, "cam": strided_cam.cpu(), "high_res": highres_cam.cpu().numpy()})
 
@@ -134,10 +138,19 @@ def run(args):
         os.makedirs(f'vis/{args.work_space}')
     n_gpus = torch.cuda.device_count()
 
-    dataset = voc12.dataloader.VOC12ClassificationDatasetMSF(args.infer_list, voc12_root=args.voc12_root,
+    path_to_load = './wikiscenes/train.txt'
+    file = open(path_to_load, "r").readlines()
+    infer_list = []
+    for line in file:
+        line = line.split()[0]
+        infer_list.append(line)
+
+
+    dataset = wikiscenes.dataloader.VOC12ClassificationDatasetMSF(infer_list, voc12_root=args.voc12_root,
                                                              scales=args.cam_scales)
     dataset = torchutils.split_dataset(dataset, n_gpus)
 
+    multiprocessing.set_sharing_strategy('file_system')
     print('[ ', end='')
     multiprocessing.spawn(_work, nprocs=n_gpus, args=(model, dataset, args), join=True)
     print(']')

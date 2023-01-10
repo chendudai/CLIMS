@@ -12,10 +12,12 @@ import importlib
 from imutils import visual_debug
 from clip_utils import clip_forward
 from clip_loss import SimMaxLoss, SimMinLoss, BackgroundSuppressionLoss
-import voc12.dataloader
+import wikiscenes.dataloader as dataloader
+# import voc12.dataloader as dataloader
 from misc import pyutils, torchutils
 import os, math
-
+import random
+import numpy as np
 
 def validate(model, data_loader):
     print('validating ... ', flush=True, end='')
@@ -59,18 +61,52 @@ def validate(model, data_loader):
 #     set_seed(GLOBAL_SEED + worker_id)
 
 def run(args):
+    random.seed(10)
+
     model = getattr(importlib.import_module(args.clims_network), 'CLIMS')(n_classes=20)
 
     # initialize backbone network with baseline CAM
     model.load_state_dict(torch.load('cam-baseline-voc12/res50_cam.pth'), strict=True)
-    train_dataset = voc12.dataloader.VOC12ClassificationDataset(args.train_list, voc12_root=args.voc12_root,
+    list_files = []
+    subfolders = os.listdir(args.voc12_root)
+    for f in subfolders:
+        for x in os.listdir(os.path.join(args.voc12_root, f)):
+            x = f + '/' + x
+            list_files.append(x)
+
+    n_files = len(list_files)
+    all_idx = [i for i in range(n_files)]
+    train_list_idx = random.sample(all_idx, np.int(n_files * 0.8))
+    val_test_list_idx = list(set(all_idx) - set(train_list_idx))
+    val_list_idx = random.sample(val_test_list_idx, np.int(n_files * 0.1))
+    test_list_idx = list(set(all_idx) - set(train_list_idx) - set(val_list_idx))
+
+    train_list = [list_files[i] for i in train_list_idx]
+    val_list = [list_files[i] for i in val_list_idx]
+    test_list = [list_files[i] for i in test_list_idx]
+
+    path_to_save = './wikiscenes'
+    with open(os.path.join(path_to_save, 'train.txt'), 'w') as f:
+        for i in train_list:
+            f.write(str(i))
+            f.write('\n')
+    with open(os.path.join(path_to_save, 'val.txt'), 'w') as f:
+        for i in val_list:
+            f.write(str(i))
+            f.write('\n')
+    with open(os.path.join(path_to_save, 'test.txt'), 'w') as f:
+        for i in test_list:
+            f.write(str(i))
+            f.write('\n')
+
+    train_dataset = dataloader.VOC12ClassificationDataset(train_list, voc12_root=args.voc12_root,
                                                                 resize_long=(320, 640), hor_flip=True,
                                                                 crop_size=512, crop_method="random")
     train_data_loader = DataLoader(train_dataset, batch_size=args.cam_batch_size,
                                    shuffle=True, num_workers=args.num_workers, pin_memory=True, drop_last=True)
     max_step = (len(train_dataset) // args.cam_batch_size) * args.clims_num_epoches
 
-    val_dataset = voc12.dataloader.VOC12ClassificationDataset(args.val_list, voc12_root=args.voc12_root,
+    val_dataset = dataloader.VOC12ClassificationDataset(val_list, voc12_root=args.voc12_root,
                                                               crop_size=512)
     val_data_loader = DataLoader(val_dataset, batch_size=args.cam_batch_size,
                                  shuffle=False, num_workers=args.num_workers, pin_memory=True, drop_last=True)
@@ -132,7 +168,13 @@ def run(args):
 
             fg_label = preprocess(label.cpu())
 
+            img[np.isnan(img.cpu())] = 0
+            img[np.isinf(img.cpu())] = 0
+
             x = model(img)
+            if torch.isnan(img.sum().cpu()):
+                print('dasds')
+
             N, _, _, _ = x.size()
             optimizer.zero_grad()
 
